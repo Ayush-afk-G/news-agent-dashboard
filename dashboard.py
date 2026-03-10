@@ -354,7 +354,7 @@ for col, number, label in [
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Charts — Pipeline Breakdown
+# Chart constants (used in right column below)
 # ---------------------------------------------------------------------------
 
 _SIGNAL_COLORS: dict[str, str] = {
@@ -377,68 +377,11 @@ _CHART_LAYOUT = dict(
     title_font_color="#1a1a2e",
 )
 
-st.markdown("#### Pipeline Breakdown")
-ch1, ch2 = st.columns(2)
-
-# Chart 1 — Leads by Signal Type (donut)
-with ch1:
-    sig_counts = filtered["lead_signal"].value_counts().reset_index()
-    sig_counts.columns = ["Signal", "Count"]
-    fig1 = px.pie(
-        sig_counts,
-        names="Signal",
-        values="Count",
-        hole=0.55,
-        color="Signal",
-        color_discrete_map=_SIGNAL_COLORS,
-        title="Leads by Signal",
-    )
-    fig1.update_traces(textposition="inside", textinfo="percent")
-    fig1.update_layout(
-        **_CHART_LAYOUT,
-        height=320,
-        showlegend=True,
-        legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=11)),
-    )
-    st.plotly_chart(fig1, use_container_width=True, config=_CHART_CONFIG)
-
-# Chart 2 — Avg Score by Company (horizontal bar, top 8)
-with ch2:
-    co_scores = (
-        filtered.assign(_score_num=scores_all)
-        .groupby("company_name")["_score_num"]
-        .mean()
-        .nlargest(8)
-        .sort_values(ascending=True)
-        .reset_index()
-    )
-    co_scores["company_name"] = co_scores["company_name"].apply(
-        lambda n: n[:20] + "…" if len(n) > 20 else n
-    )
-    fig2 = px.bar(
-        co_scores,
-        x="_score_num",
-        y="company_name",
-        orientation="h",
-        title="Avg Score by Company",
-        text=co_scores["_score_num"].round(0).astype(int),
-    )
-    fig2.update_traces(marker_color="#6366f1", textposition="outside")
-    fig2.update_layout(
-        **_CHART_LAYOUT,
-        showlegend=False,
-        xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
-        yaxis=dict(title=""),
-    )
-    st.plotly_chart(fig2, use_container_width=True, config=_CHART_CONFIG)
-
-st.divider()
-
 # ---------------------------------------------------------------------------
 # Two-column body
 # ---------------------------------------------------------------------------
 
-main_col, side_col = st.columns([13, 7])
+main_col, side_col = st.columns([11, 9])
 
 # ── Left: company-grouped lead feed ────────────────────────────────────────
 
@@ -505,6 +448,45 @@ with main_col:
 # ── Right: Top Leads sidebar ───────────────────────────────────────────────
 
 with side_col:
+    # Chart 1 — Leads by Signal (donut)
+    sig_counts = filtered["lead_signal"].value_counts().reset_index()
+    sig_counts.columns = ["Signal", "Count"]
+    sig_counts["Signal"] = sig_counts["Signal"].str.title()
+    fig1 = px.pie(
+        sig_counts, names="Signal", values="Count", hole=0.55,
+        color="Signal", color_discrete_map=_SIGNAL_COLORS, title="Leads by Signal",
+    )
+    fig1.update_traces(textposition="inside", textinfo="percent")
+    fig1.update_layout(
+        **_CHART_LAYOUT, height=260, showlegend=True,
+        legend=dict(orientation="v", x=1.0, y=0.5, font=dict(size=10)),
+    )
+    st.plotly_chart(fig1, use_container_width=True, config=_CHART_CONFIG)
+
+    # Chart 2 — Avg Score by Company (horizontal bar)
+    co_scores = (
+        filtered.assign(_score_num=scores_all)
+        .groupby("company_name")["_score_num"].mean()
+        .nlargest(6).sort_values(ascending=True).reset_index()
+    )
+    co_scores["company_name"] = co_scores["company_name"].apply(
+        lambda n: (n[:18] + "…") if len(n) > 18 else n
+    )
+    fig2 = px.bar(
+        co_scores, x="_score_num", y="company_name", orientation="h",
+        title="Avg Score by Company",
+        text=co_scores["_score_num"].round(0).astype(int),
+    )
+    fig2.update_traces(marker_color="#6366f1", textposition="outside")
+    fig2.update_layout(
+        **_CHART_LAYOUT, height=260, showlegend=False,
+        xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
+        yaxis=dict(title=""),
+    )
+    st.plotly_chart(fig2, use_container_width=True, config=_CHART_CONFIG)
+
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+
     top5 = (
         filtered.assign(_score_num=scores_all)
         .nlargest(5, "_score_num")
