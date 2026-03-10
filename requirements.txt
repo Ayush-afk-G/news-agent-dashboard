@@ -1,0 +1,6 @@
+gspread~=6.1
+oauth2client~=4.1
+python-dotenv~=1.1
+streamlit~=1.43
+pandas~=2.2
+plotly~=5.24
