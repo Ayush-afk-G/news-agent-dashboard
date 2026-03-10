@@ -247,10 +247,12 @@ def _score_badge(score_raw: str) -> tuple[str, str]:
 
 @st.cache_resource
 def _get_gs_client() -> gspread.Client:
-    if "gcp_service_account" in st.secrets:
-        # Streamlit Cloud: credentials injected via secrets UI
+    import json as _json
+    gcp_json = st.secrets.get("GCP_CREDENTIALS_JSON", "") or os.getenv("GCP_CREDENTIALS_JSON", "")
+    if gcp_json:
+        # Streamlit Cloud: full credentials.json stored as JSON string secret
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            dict(st.secrets["gcp_service_account"]), _SCOPES
+            _json.loads(gcp_json), _SCOPES
         )
     else:
         # Local: read from credentials.json file
