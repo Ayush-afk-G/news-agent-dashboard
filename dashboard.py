@@ -195,6 +195,14 @@ div[data-testid="stTextArea"] textarea {
     color: #9ca3af;
     margin-bottom: 4px;
 }
+.top-lead-article a {
+    font-size: 0.72rem;
+    color: #6b7280;
+    text-decoration: none;
+    display: block;
+    margin: 3px 0 2px 0;
+}
+.top-lead-article a:hover { text-decoration: underline; }
 .top-lead-msg {
     font-size: 0.75rem;
     color: #6b7280;
@@ -370,7 +378,7 @@ _CHART_LAYOUT = dict(
 )
 
 st.markdown("#### Pipeline Breakdown")
-ch1, ch2, ch3 = st.columns(3)
+ch1, ch2 = st.columns(2)
 
 # Chart 1 — Leads by Signal Type (donut)
 with ch1:
@@ -385,8 +393,13 @@ with ch1:
         color_discrete_map=_SIGNAL_COLORS,
         title="Leads by Signal",
     )
-    fig1.update_traces(textposition="outside", textinfo="percent+label")
-    fig1.update_layout(**_CHART_LAYOUT, showlegend=False)
+    fig1.update_traces(textposition="inside", textinfo="percent")
+    fig1.update_layout(
+        **_CHART_LAYOUT,
+        height=320,
+        showlegend=True,
+        legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=11)),
+    )
     st.plotly_chart(fig1, use_container_width=True, config=_CHART_CONFIG)
 
 # Chart 2 — Avg Score by Company (horizontal bar, top 8)
@@ -418,34 +431,6 @@ with ch2:
         yaxis=dict(title=""),
     )
     st.plotly_chart(fig2, use_container_width=True, config=_CHART_CONFIG)
-
-# Chart 3 — Score Distribution (vertical bar)
-with ch3:
-    buckets = pd.cut(
-        scores_all,
-        bins=[0, 50, 70, 100],
-        labels=["Low\n(<50)", "Medium\n(50–69)", "High\n(≥70)"],
-        include_lowest=True,
-    )
-    dist = buckets.value_counts().reindex(["Low\n(<50)", "Medium\n(50–69)", "High\n(≥70)"]).fillna(0).reset_index()
-    dist.columns = ["Bucket", "Count"]
-    fig3 = px.bar(
-        dist,
-        x="Bucket",
-        y="Count",
-        title="Score Distribution",
-        text="Count",
-        color="Bucket",
-        color_discrete_sequence=["#e5e7eb", "#fbbf24", "#10b981"],
-    )
-    fig3.update_traces(textposition="outside")
-    fig3.update_layout(
-        **_CHART_LAYOUT,
-        showlegend=False,
-        xaxis=dict(title=""),
-        yaxis=dict(title="", showgrid=True, gridcolor="#f3f4f6"),
-    )
-    st.plotly_chart(fig3, use_container_width=True, config=_CHART_CONFIG)
 
 st.divider()
 
@@ -535,18 +520,26 @@ with side_col:
                     f"{row.get('first_name', '')} {row.get('last_name', '')}".strip()
         company   = str(row.get("company_name", "") or "").strip()
         job_title = str(row.get("job_title", "") or "").strip()
-        linkedin  = str(row.get("linkedin_profile", "") or "").strip()
-        message   = str(row.get("personalised_message", "") or "")
-        signal    = str(row.get("lead_signal", "") or "").strip()
-        score_raw = str(row.get("score", "") or "").strip()
+        linkedin      = str(row.get("linkedin_profile", "") or "").strip()
+        message       = str(row.get("personalised_message", "") or "")
+        signal        = str(row.get("lead_signal", "") or "").strip()
+        score_raw     = str(row.get("score", "") or "").strip()
+        article_url   = str(row.get("article_url", "") or "").strip()
+        article_title = str(row.get("article_title", "") or "").strip()
 
         sig_cls, sig_lbl = _signal_badge(signal)
         sc_cls,  sc_lbl  = _score_badge(score_raw)
 
         rank_class = "top3" if rank <= 3 else ""
-        li_html = f'<a href="{linkedin}" target="_blank">↗</a>' if linkedin else ""
-        preview = message[:160].replace("<", "&lt;").replace(">", "&gt;")
-        ellipsis = "…" if len(message) > 160 else ""
+        li_html    = f'<a href="{linkedin}" target="_blank">↗</a>' if linkedin else ""
+        preview    = message[:160].replace("<", "&lt;").replace(">", "&gt;")
+        ellipsis   = "…" if len(message) > 160 else ""
+        art_label  = (article_title[:45] + "…") if len(article_title) > 45 else article_title
+        art_html   = (
+            f'<div class="top-lead-article">'
+            f'<a href="{article_url}" target="_blank">↗ {art_label or "Source Article"}</a>'
+            f'</div>'
+        ) if article_url else ""
 
         parts.append(
             f'<div class="top-lead-row">'
@@ -556,6 +549,7 @@ with side_col:
             f'<div class="top-lead-co">{company} · {job_title}</div>'
             f'<span class="badge {sig_cls}">{sig_lbl}</span>'
             f'<span class="badge {sc_cls}">{sc_lbl}</span>'
+            f'{art_html}'
             f'<div class="top-lead-msg">{preview}{ellipsis}</div>'
             f'</div>'
             f'</div>'
