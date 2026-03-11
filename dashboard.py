@@ -151,6 +151,38 @@ div[data-testid="stCodeBlock"] pre {
     line-height: 1.5 !important;
 }
 
+/* ── Pipeline overview card ── */
+.pipeline-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    padding: 16px 18px;
+    margin-bottom: 4px;
+}
+.pipeline-card-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 14px;
+}
+.pipeline-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+.pipe-step { text-align: center; flex: 1; }
+.pipe-num  { font-size: 1.6rem; font-weight: 800; color: #1a1a2e; line-height: 1; }
+.pipe-label {
+    font-size: 0.68rem;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 5px;
+}
+.pipe-arrow { color: #d1d5db; font-size: 1.1rem; padding-bottom: 12px; flex: 0; }
+
 /* ── Sidebar panel ── */
 .sidebar-panel {
     background: #ffffff;
@@ -264,12 +296,10 @@ def _get_gs_client() -> gspread.Client:
     import json as _json
     gcp_json = st.secrets.get("GCP_CREDENTIALS_JSON", "") or os.getenv("GCP_CREDENTIALS_JSON", "")
     if gcp_json:
-        # Streamlit Cloud: full credentials.json stored as JSON string secret
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
             _json.loads(gcp_json), _SCOPES
         )
     else:
-        # Local: read from credentials.json file
         default_creds = os.path.join(os.path.dirname(__file__), "credentials.json")
         creds_file = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE", default_creds)
         creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, _SCOPES)
@@ -284,9 +314,9 @@ def load_pipeline_counts() -> dict[str, int]:
     ss = _get_gs_client().open_by_key(spreadsheet_id)
     counts: dict[str, int] = {}
     for tab, key in [
-        ("MarketingLeads", "Articles Scraped"),
-        ("ApolloLeads",    "Contacts Enriched"),
-        ("PersonalisedLeads", "Messages Generated"),
+        ("MarketingLeads",    "Articles"),
+        ("ApolloLeads",       "Contacts"),
+        ("PersonalisedLeads", "Messages"),
     ]:
         try:
             rows = ss.worksheet(tab).get_all_values()
@@ -348,6 +378,7 @@ with ctrl_l:
 with ctrl_r:
     if st.button("Refresh", use_container_width=True):
         load_leads.clear()
+        load_pipeline_counts.clear()
         st.rerun()
 
 if filtered.empty:
@@ -380,7 +411,7 @@ for col, number, label in [
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Chart constants (used in right column below)
+# Chart constants
 # ---------------------------------------------------------------------------
 
 _SIGNAL_COLORS: dict[str, str] = {
@@ -421,7 +452,6 @@ with main_col:
 
         label = f"{company_name}  ·  {n_leads_co} lead{'s' if n_leads_co != 1 else ''}"
         with st.expander(label, expanded=False):
-            # Company context
             if desc:
                 st.caption(desc)
             if article_url:
@@ -465,10 +495,31 @@ with main_col:
                 )
                 st.code(message, language=None)
 
-# ── Right: Top Leads sidebar ───────────────────────────────────────────────
+# ── Right column ────────────────────────────────────────────────────────────
 
 with side_col:
-    # Chart 1 — Leads by Signal (donut)
+
+    # ── 1. Pipeline overview ──
+    pipeline = load_pipeline_counts()
+    if pipeline:
+        articles = pipeline.get("Articles", 0)
+        contacts = pipeline.get("Contacts", 0)
+        messages = pipeline.get("Messages", 0)
+        st.markdown(
+            f'<div class="pipeline-card">'
+            f'<div class="pipeline-card-title">Pipeline Overview (All Time)</div>'
+            f'<div class="pipeline-row">'
+            f'  <div class="pipe-step"><div class="pipe-num">{articles}</div><div class="pipe-label">Articles</div></div>'
+            f'  <div class="pipe-arrow">→</div>'
+            f'  <div class="pipe-step"><div class="pipe-num">{contacts}</div><div class="pipe-label">Contacts</div></div>'
+            f'  <div class="pipe-arrow">→</div>'
+            f'  <div class="pipe-step"><div class="pipe-num">{messages}</div><div class="pipe-label">Messages</div></div>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── 2. Leads by Signal (donut) ──
     sig_counts = filtered["lead_signal"].value_counts().reset_index()
     sig_counts.columns = ["Signal", "Count"]
     sig_counts["Signal"] = sig_counts["Signal"].str.title()
@@ -478,12 +529,12 @@ with side_col:
     )
     fig1.update_traces(textposition="inside", textinfo="percent")
     fig1.update_layout(
-        **_CHART_LAYOUT, height=260, showlegend=True,
+        **_CHART_LAYOUT, height=240, showlegend=True,
         legend=dict(orientation="v", x=1.0, y=0.5, font=dict(size=10)),
     )
     st.plotly_chart(fig1, use_container_width=True, config=_CHART_CONFIG)
 
-    # Chart 2 — Avg Score by Company (horizontal bar)
+    # ── 3. Avg Score by Company (horizontal bar) ──
     co_scores = (
         filtered.assign(_score_num=scores_all)
         .groupby("company_name")["_score_num"].mean()
@@ -500,13 +551,41 @@ with side_col:
     )
     fig2.update_traces(marker_color="#6366f1", textposition="inside", insidetextanchor="end")
     fig2.update_layout(
-        **_CHART_LAYOUT, height=260, showlegend=False,
+        **_CHART_LAYOUT, height=240, showlegend=False,
+        bargap=0.35,
         xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
         yaxis=dict(title=""),
     )
     st.plotly_chart(fig2, use_container_width=True, config=_CHART_CONFIG)
 
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    # ── 4. Avg Score by Signal (horizontal bar) ──
+    sig_scores = (
+        filtered.assign(Score=scores_all)
+        .groupby("lead_signal")["Score"].mean()
+        .reset_index()
+        .rename(columns={"lead_signal": "Signal", "Score": "Avg Score"})
+    )
+    sig_scores["Signal"] = sig_scores["Signal"].str.title()
+    sig_scores = sig_scores.sort_values("Avg Score", ascending=True)
+
+    fig3 = px.bar(
+        sig_scores, x="Avg Score", y="Signal", orientation="h",
+        title="Avg Score by Signal",
+        text=sig_scores["Avg Score"].round(0).astype(int),
+        color="Signal",
+        color_discrete_map=_SIGNAL_COLORS,
+    )
+    fig3.update_traces(textposition="inside", insidetextanchor="end")
+    fig3.update_layout(
+        **_CHART_LAYOUT, height=240, showlegend=False,
+        bargap=0.35,
+        xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
+        yaxis=dict(title=""),
+    )
+    st.plotly_chart(fig3, use_container_width=True, config=_CHART_CONFIG)
+
+    # ── 5. Top Leads Today ──
+    st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
 
     top5 = (
         filtered.assign(_score_num=scores_all)
@@ -560,63 +639,3 @@ with side_col:
 
     parts.append('</div>')
     st.markdown("".join(parts), unsafe_allow_html=True)
-
-# ---------------------------------------------------------------------------
-# Insights section
-# ---------------------------------------------------------------------------
-
-st.divider()
-st.markdown("#### Pipeline & Signal Insights")
-
-ins_l, ins_r = st.columns(2)
-
-with ins_l:
-    pipeline = load_pipeline_counts()
-    if pipeline:
-        stages = list(pipeline.keys())
-        counts = list(pipeline.values())
-        funnel_df = pd.DataFrame({"Stage": stages, "Count": counts})
-        fig_funnel = px.bar(
-            funnel_df, x="Count", y="Stage", orientation="h",
-            title="Pipeline Funnel (All Time)",
-            text="Count",
-            color="Stage",
-            color_discrete_sequence=["#6366f1", "#8b5cf6", "#a78bfa"],
-        )
-        fig_funnel.update_traces(textposition="inside", insidetextanchor="middle")
-        fig_funnel.update_layout(
-            **_CHART_LAYOUT, height=300, showlegend=False,
-            dragmode=False,
-            xaxis=dict(title="", showgrid=True, gridcolor="#f3f4f6"),
-            yaxis=dict(
-                title="",
-                categoryorder="array",
-                categoryarray=list(reversed(stages)),
-            ),
-        )
-        st.plotly_chart(fig_funnel, use_container_width=True, config=_CHART_CONFIG)
-
-with ins_r:
-    sig_scores = (
-        filtered.assign(Score=scores_all)
-        .groupby("lead_signal")["Score"].mean()
-        .reset_index()
-        .rename(columns={"lead_signal": "Signal", "Score": "Avg Score"})
-    )
-    sig_scores["Signal"] = sig_scores["Signal"].str.title()
-    sig_scores = sig_scores.sort_values("Avg Score", ascending=True)
-
-    fig_sig = px.bar(
-        sig_scores, x="Avg Score", y="Signal", orientation="h",
-        title="Avg Score by Signal",
-        text=sig_scores["Avg Score"].round(0).astype(int),
-        color="Signal",
-        color_discrete_map=_SIGNAL_COLORS,
-    )
-    fig_sig.update_traces(textposition="inside", insidetextanchor="end")
-    fig_sig.update_layout(
-        **_CHART_LAYOUT, height=300, showlegend=False,
-        xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
-        yaxis=dict(title=""),
-    )
-    st.plotly_chart(fig_sig, use_container_width=True, config=_CHART_CONFIG)
