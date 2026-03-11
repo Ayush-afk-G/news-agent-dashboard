@@ -127,7 +127,6 @@ div[data-testid="stTextArea"] textarea {
 .badge-funding    { background: #d1fae5; color: #065f46; }
 .badge-broadcast  { background: #dbeafe; color: #1e40af; }
 .badge-sponsor    { background: #ede9fe; color: #5b21b6; }
-.badge-hire       { background: #ffedd5; color: #92400e; }
 .badge-launch     { background: #ccfbf1; color: #0f766e; }
 .badge-general    { background: #f3f4f6; color: #6b7280; }
 .badge-score-high { background: #d1fae5; color: #065f46; }
@@ -231,12 +230,12 @@ hr { margin: 10px 0 !important; }
 # ---------------------------------------------------------------------------
 
 _SIGNAL_MAP: dict[str, tuple[str, str]] = {
-    "funding/investment": ("badge-funding",   "Funding"),
-    "broadcast deal":     ("badge-broadcast", "Broadcast"),
-    "sponsorship deal":   ("badge-sponsor",   "Sponsorship"),
-    "leadership hire":    ("badge-hire",      "Leadership Hire"),
-    "platform launch":    ("badge-launch",    "Platform Launch"),
-    "general coverage":   ("badge-general",   "Coverage"),
+    "funding/investment":  ("badge-funding",   "Funding"),
+    "broadcast deal":      ("badge-broadcast", "Broadcast"),
+    "sponsorship deal":    ("badge-sponsor",   "Sponsorship"),
+    "platform launch":     ("badge-launch",    "Platform Launch"),
+    "new season/expansion":("badge-general",   "New Season"),
+    "general coverage":    ("badge-general",   "Coverage"),
 }
 
 
@@ -385,12 +384,12 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 _SIGNAL_COLORS: dict[str, str] = {
-    "Funding/Investment": "#10b981",
-    "Broadcast Deal":     "#3b82f6",
-    "Sponsorship Deal":   "#8b5cf6",
-    "Leadership Hire":    "#f59e0b",
-    "Platform Launch":    "#14b8a6",
-    "General Coverage":   "#9ca3af",
+    "Funding/Investment":  "#10b981",
+    "Broadcast Deal":      "#3b82f6",
+    "Sponsorship Deal":    "#8b5cf6",
+    "Platform Launch":     "#14b8a6",
+    "New Season/Expansion":"#f59e0b",
+    "General Coverage":    "#9ca3af",
 }
 
 _CHART_CONFIG = {"displayModeBar": False}
@@ -574,14 +573,26 @@ ins_l, ins_r = st.columns(2)
 with ins_l:
     pipeline = load_pipeline_counts()
     if pipeline:
-        funnel_df = pd.DataFrame({
-            "Stage": list(pipeline.keys()),
-            "Count": list(pipeline.values()),
-        })
-        fig_funnel = px.funnel(funnel_df, x="Count", y="Stage", title="Pipeline Funnel (All Time)")
+        stages = list(pipeline.keys())
+        counts = list(pipeline.values())
+        funnel_df = pd.DataFrame({"Stage": stages, "Count": counts})
+        fig_funnel = px.bar(
+            funnel_df, x="Count", y="Stage", orientation="h",
+            title="Pipeline Funnel (All Time)",
+            text="Count",
+            color="Stage",
+            color_discrete_sequence=["#6366f1", "#8b5cf6", "#a78bfa"],
+        )
+        fig_funnel.update_traces(textposition="inside", insidetextanchor="middle")
         fig_funnel.update_layout(
             **_CHART_LAYOUT, height=300, showlegend=False,
-            yaxis=dict(title=""),
+            dragmode=False,
+            xaxis=dict(title="", showgrid=True, gridcolor="#f3f4f6"),
+            yaxis=dict(
+                title="",
+                categoryorder="array",
+                categoryarray=list(reversed(stages)),
+            ),
         )
         st.plotly_chart(fig_funnel, use_container_width=True, config=_CHART_CONFIG)
 
