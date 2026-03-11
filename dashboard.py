@@ -8,6 +8,7 @@ Run: streamlit run dashboard.py
 """
 
 import os
+from datetime import date as date_type
 
 import gspread
 import pandas as pd
@@ -364,12 +365,35 @@ if df.empty:
 
 has_dates = "date_processed" in df.columns and df["date_processed"].str.strip().any()
 
-ctrl_l, ctrl_r = st.columns([6, 1])
+# Build sorted available dates (proper date sort, not string sort)
+if has_dates:
+    _date_str_to_obj: dict[str, date_type] = {}
+    for _d in df["date_processed"].str.strip().unique():
+        try:
+            _date_str_to_obj[_d] = pd.to_datetime(_d).date()
+        except Exception:
+            pass
+    _sorted_date_strs = sorted(_date_str_to_obj, key=lambda d: _date_str_to_obj[d], reverse=True)
+    _available_dates = [_date_str_to_obj[d] for d in _sorted_date_strs]
+else:
+    _sorted_date_strs = []
+    _available_dates = []
+
+ctrl_l, ctrl_spacer, ctrl_r = st.columns([2, 6, 1])
 with ctrl_l:
     if has_dates:
-        dates = sorted(df["date_processed"].unique(), reverse=True)
-        selected_date = st.selectbox("Date", dates, index=0, label_visibility="collapsed")
-        filtered = df[df["date_processed"] == selected_date].copy()
+        selected_date_obj = st.date_input(
+            "Date",
+            value=_available_dates[0],
+            min_value=_available_dates[-1],
+            max_value=_available_dates[0],
+            label_visibility="collapsed",
+        )
+        # Match back to sheet string
+        selected_date = next(
+            (s for s, d in _date_str_to_obj.items() if d == selected_date_obj), None
+        )
+        filtered = df[df["date_processed"] == selected_date].copy() if selected_date else pd.DataFrame()
     else:
         st.caption("No date data — showing all leads.")
         filtered = df.copy()
@@ -382,7 +406,7 @@ with ctrl_r:
         st.rerun()
 
 if filtered.empty:
-    st.info("No contacts for this date.")
+    st.info("No leads for this date.")
     st.stop()
 
 # Stats row
@@ -497,30 +521,33 @@ with main_col:
 
 # ── Right column ────────────────────────────────────────────────────────────
 
-with side_col:
+def _render_side_panel(data: pd.DataFrame, top_leads_title: str, show_pipeline: bool = False) -> None:
+    """Render charts + top leads for a given dataframe slice."""
+    data_scores = pd.to_numeric(data["score"], errors="coerce").fillna(0)
 
-    # ── 1. Pipeline overview ──
-    pipeline = load_pipeline_counts()
-    if pipeline:
-        articles = pipeline.get("Articles", 0)
-        contacts = pipeline.get("Contacts", 0)
-        messages = pipeline.get("Messages", 0)
-        st.markdown(
-            f'<div class="pipeline-card">'
-            f'<div class="pipeline-card-title">Pipeline Overview (All Time)</div>'
-            f'<div class="pipeline-row">'
-            f'  <div class="pipe-step"><div class="pipe-num">{articles}</div><div class="pipe-label">Articles</div></div>'
-            f'  <div class="pipe-arrow">→</div>'
-            f'  <div class="pipe-step"><div class="pipe-num">{contacts}</div><div class="pipe-label">Contacts</div></div>'
-            f'  <div class="pipe-arrow">→</div>'
-            f'  <div class="pipe-step"><div class="pipe-num">{messages}</div><div class="pipe-label">Messages</div></div>'
-            f'</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # Pipeline overview (all-time only)
+    if show_pipeline:
+        pipeline = load_pipeline_counts()
+        if pipeline:
+            articles = pipeline.get("Articles", 0)
+            contacts = pipeline.get("Contacts", 0)
+            messages = pipeline.get("Messages", 0)
+            st.markdown(
+                f'<div class="pipeline-card">'
+                f'<div class="pipeline-card-title">Pipeline Overview (All Time)</div>'
+                f'<div class="pipeline-row">'
+                f'  <div class="pipe-step"><div class="pipe-num">{articles}</div><div class="pipe-label">Articles</div></div>'
+                f'  <div class="pipe-arrow">→</div>'
+                f'  <div class="pipe-step"><div class="pipe-num">{contacts}</div><div class="pipe-label">Contacts</div></div>'
+                f'  <div class="pipe-arrow">→</div>'
+                f'  <div class="pipe-step"><div class="pipe-num">{messages}</div><div class="pipe-label">Messages</div></div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    # ── 2. Leads by Signal (donut) ──
-    sig_counts = filtered["lead_signal"].value_counts().reset_index()
+    # Leads by Signal (donut)
+    sig_counts = data["lead_signal"].value_counts().reset_index()
     sig_counts.columns = ["Signal", "Count"]
     sig_counts["Signal"] = sig_counts["Signal"].str.title()
     fig1 = px.pie(
@@ -534,12 +561,12 @@ with side_col:
     )
     st.plotly_chart(fig1, use_container_width=True, config=_CHART_CONFIG)
 
-    # ── 3. Avg Score by Company (horizontal bar) ──
+    # Avg Score by Company
     co_scores = (
-        filtered.assign(_score_num=scores_all)
-        .groupby("company_name")["_score_num"].mean()
+        data.assign(_s=data_scores)
+        .groupby("company_name")["_s"].mean()
         .nlargest(6).sort_values(ascending=True).reset_index()
-        .rename(columns={"company_name": "Company", "_score_num": "Avg Score"})
+        .rename(columns={"company_name": "Company", "_s": "Avg Score"})
     )
     co_scores["Company"] = co_scores["Company"].apply(
         lambda n: (n[:18] + "…") if len(n) > 18 else n
@@ -551,67 +578,54 @@ with side_col:
     )
     fig2.update_traces(marker_color="#6366f1", textposition="inside", insidetextanchor="end")
     fig2.update_layout(
-        **_CHART_LAYOUT, height=240, showlegend=False,
-        bargap=0.35,
+        **_CHART_LAYOUT, height=240, showlegend=False, bargap=0.35,
         xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
         yaxis=dict(title=""),
     )
     st.plotly_chart(fig2, use_container_width=True, config=_CHART_CONFIG)
 
-    # ── 4. Avg Score by Signal (horizontal bar) ──
+    # Avg Score by Signal
     sig_scores = (
-        filtered.assign(Score=scores_all)
-        .groupby("lead_signal")["Score"].mean()
+        data.assign(_s=data_scores)
+        .groupby("lead_signal")["_s"].mean()
         .reset_index()
-        .rename(columns={"lead_signal": "Signal", "Score": "Avg Score"})
+        .rename(columns={"lead_signal": "Signal", "_s": "Avg Score"})
     )
     sig_scores["Signal"] = sig_scores["Signal"].str.title()
     sig_scores = sig_scores.sort_values("Avg Score", ascending=True)
-
     fig3 = px.bar(
         sig_scores, x="Avg Score", y="Signal", orientation="h",
         title="Avg Score by Signal",
         text=sig_scores["Avg Score"].round(0).astype(int),
-        color="Signal",
-        color_discrete_map=_SIGNAL_COLORS,
+        color="Signal", color_discrete_map=_SIGNAL_COLORS,
     )
     fig3.update_traces(textposition="inside", insidetextanchor="end")
     fig3.update_layout(
-        **_CHART_LAYOUT, height=240, showlegend=False,
-        bargap=0.35,
+        **_CHART_LAYOUT, height=240, showlegend=False, bargap=0.35,
         xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
         yaxis=dict(title=""),
     )
     st.plotly_chart(fig3, use_container_width=True, config=_CHART_CONFIG)
 
-    # ── 5. Top Leads Today ──
+    # Top Leads
     st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
-
-    top5 = (
-        filtered.assign(_score_num=scores_all)
-        .nlargest(5, "_score_num")
-    )
-
+    top5 = data.assign(_s=data_scores).nlargest(5, "_s")
     parts: list[str] = [
-        '<div class="sidebar-panel">'
-        '<div class="sidebar-title">Top Leads Today</div>'
+        f'<div class="sidebar-panel"><div class="sidebar-title">{top_leads_title}</div>'
     ]
-
     for rank, (_, row) in enumerate(top5.iterrows(), start=1):
         full_name = (str(row.get("full_name", "") or "")).strip() or \
                     f"{row.get('first_name', '')} {row.get('last_name', '')}".strip()
-        company   = str(row.get("company_name", "") or "").strip()
-        job_title = str(row.get("job_title", "") or "").strip()
+        company       = str(row.get("company_name", "") or "").strip()
+        job_title     = str(row.get("job_title", "") or "").strip()
         linkedin      = str(row.get("linkedin_profile", "") or "").strip()
         message       = str(row.get("personalised_message", "") or "")
         signal        = str(row.get("lead_signal", "") or "").strip()
         score_raw     = str(row.get("score", "") or "").strip()
         article_url   = str(row.get("article_url", "") or "").strip()
         article_title = str(row.get("article_title", "") or "").strip()
-
         sig_cls, sig_lbl = _signal_badge(signal)
         sc_cls,  sc_lbl  = _score_badge(score_raw)
-
         rank_class = "top3" if rank <= 3 else ""
         li_html    = f'<a href="{linkedin}" target="_blank">↗</a>' if linkedin else ""
         preview    = message[:160].replace("<", "&lt;").replace(">", "&gt;")
@@ -622,7 +636,6 @@ with side_col:
             f'<a href="{article_url}" target="_blank">↗ {art_label or "Source Article"}</a>'
             f'</div>'
         ) if article_url else ""
-
         parts.append(
             f'<div class="top-lead-row">'
             f'<div class="rank-num {rank_class}">#{rank}</div>'
@@ -633,9 +646,17 @@ with side_col:
             f'<span class="badge {sc_cls}">{sc_lbl}</span>'
             f'{art_html}'
             f'<div class="top-lead-msg">{preview}{ellipsis}</div>'
-            f'</div>'
-            f'</div>'
+            f'</div></div>'
         )
-
     parts.append('</div>')
     st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+with side_col:
+    tab_day, tab_all = st.tabs(["Selected Date", "All Time"])
+
+    with tab_day:
+        _render_side_panel(filtered, top_leads_title="Top Leads", show_pipeline=False)
+
+    with tab_all:
+        _render_side_panel(df, top_leads_title="Top Leads (All Time)", show_pipeline=True)
