@@ -25,7 +25,7 @@ _SCOPES = [
 ]
 
 st.set_page_config(
-    page_title="Spectatr — Lead Intelligence",
+    page_title="Spectatr.ai — Lead Intelligence",
     page_icon="🎯",
     layout="wide",
 )
@@ -355,7 +355,7 @@ def load_leads() -> pd.DataFrame:
 # Header zone
 # ---------------------------------------------------------------------------
 
-st.title("Spectatr — Lead Intelligence")
+st.title("Spectatr.ai — Lead Intelligence")
 
 df = load_leads()
 
