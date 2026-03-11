@@ -134,15 +134,22 @@ div[data-testid="stTextArea"] textarea {
 .badge-score-mid  { background: #fef3c7; color: #92400e; }
 .badge-score-low  { background: #f3f4f6; color: #9ca3af; }
 
-/* ── Merge text_area visually with card above ── */
-.stTextArea { margin-bottom: 16px !important; }
-.stTextArea textarea {
+/* ── Message code block styled as message box ── */
+div[data-testid="stCodeBlock"] {
+    margin-bottom: 16px !important;
+}
+div[data-testid="stCodeBlock"] pre {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-size: 0.82rem !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    background-color: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
     border-radius: 0 0 10px 10px !important;
     border-top: 1px solid #e5e7eb !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.07) !important;
-    background-color: #ffffff !important;
     color: #111827 !important;
-    font-size: 0.82rem !important;
+    line-height: 1.5 !important;
 }
 
 /* ── Sidebar panel ── */
@@ -268,6 +275,26 @@ def _get_gs_client() -> gspread.Client:
         creds_file = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE", default_creds)
         creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, _SCOPES)
     return gspread.authorize(creds)
+
+
+@st.cache_data(ttl=300)
+def load_pipeline_counts() -> dict[str, int]:
+    spreadsheet_id = os.getenv("OUTPUT_SPREADSHEET_ID") or st.secrets.get("OUTPUT_SPREADSHEET_ID", "")
+    if not spreadsheet_id:
+        return {}
+    ss = _get_gs_client().open_by_key(spreadsheet_id)
+    counts: dict[str, int] = {}
+    for tab, key in [
+        ("MarketingLeads", "Articles Scraped"),
+        ("ApolloLeads",    "Contacts Enriched"),
+        ("PersonalisedLeads", "Messages Generated"),
+    ]:
+        try:
+            rows = ss.worksheet(tab).get_all_values()
+            counts[key] = max(0, len(rows) - 1)
+        except Exception:
+            counts[key] = 0
+    return counts
 
 
 @st.cache_data(ttl=300)
@@ -437,13 +464,7 @@ with main_col:
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-                st.text_area(
-                    label="message",
-                    value=message,
-                    height=115,
-                    key=f"msg_{i}_{linkedin}",
-                    label_visibility="collapsed",
-                )
+                st.code(message, language=None)
 
 # ── Right: Top Leads sidebar ───────────────────────────────────────────────
 
@@ -468,16 +489,17 @@ with side_col:
         filtered.assign(_score_num=scores_all)
         .groupby("company_name")["_score_num"].mean()
         .nlargest(6).sort_values(ascending=True).reset_index()
+        .rename(columns={"company_name": "Company", "_score_num": "Avg Score"})
     )
-    co_scores["company_name"] = co_scores["company_name"].apply(
+    co_scores["Company"] = co_scores["Company"].apply(
         lambda n: (n[:18] + "…") if len(n) > 18 else n
     )
     fig2 = px.bar(
-        co_scores, x="_score_num", y="company_name", orientation="h",
+        co_scores, x="Avg Score", y="Company", orientation="h",
         title="Avg Score by Company",
-        text=co_scores["_score_num"].round(0).astype(int),
+        text=co_scores["Avg Score"].round(0).astype(int),
     )
-    fig2.update_traces(marker_color="#6366f1", textposition="outside")
+    fig2.update_traces(marker_color="#6366f1", textposition="inside", insidetextanchor="end")
     fig2.update_layout(
         **_CHART_LAYOUT, height=260, showlegend=False,
         xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
@@ -539,3 +561,51 @@ with side_col:
 
     parts.append('</div>')
     st.markdown("".join(parts), unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Insights section
+# ---------------------------------------------------------------------------
+
+st.divider()
+st.markdown("#### Pipeline & Signal Insights")
+
+ins_l, ins_r = st.columns(2)
+
+with ins_l:
+    pipeline = load_pipeline_counts()
+    if pipeline:
+        funnel_df = pd.DataFrame({
+            "Stage": list(pipeline.keys()),
+            "Count": list(pipeline.values()),
+        })
+        fig_funnel = px.funnel(funnel_df, x="Count", y="Stage", title="Pipeline Funnel (All Time)")
+        fig_funnel.update_layout(
+            **_CHART_LAYOUT, height=300, showlegend=False,
+            yaxis=dict(title=""),
+        )
+        st.plotly_chart(fig_funnel, use_container_width=True, config=_CHART_CONFIG)
+
+with ins_r:
+    sig_scores = (
+        filtered.assign(Score=scores_all)
+        .groupby("lead_signal")["Score"].mean()
+        .reset_index()
+        .rename(columns={"lead_signal": "Signal", "Score": "Avg Score"})
+    )
+    sig_scores["Signal"] = sig_scores["Signal"].str.title()
+    sig_scores = sig_scores.sort_values("Avg Score", ascending=True)
+
+    fig_sig = px.bar(
+        sig_scores, x="Avg Score", y="Signal", orientation="h",
+        title="Avg Score by Signal",
+        text=sig_scores["Avg Score"].round(0).astype(int),
+        color="Signal",
+        color_discrete_map=_SIGNAL_COLORS,
+    )
+    fig_sig.update_traces(textposition="inside", insidetextanchor="end")
+    fig_sig.update_layout(
+        **_CHART_LAYOUT, height=300, showlegend=False,
+        xaxis=dict(title="", range=[0, 105], showgrid=True, gridcolor="#f3f4f6"),
+        yaxis=dict(title=""),
+    )
+    st.plotly_chart(fig_sig, use_container_width=True, config=_CHART_CONFIG)
